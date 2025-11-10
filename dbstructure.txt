@@ -1,0 +1,27 @@
+MongoDB (tblUsers):
+├── _id (user unique ID)
+├── email
+├── password (hashed)
+├── isVerified
+├── verificationToken
+└── createdAt
+
+Supabase (users_profile):
+├── id (same as MongoDB _id)
+├── firstName
+├── lastName
+├── phone
+├── profilePicture
+└── updatedAt
+
+Supabase (courses):
+├── courseId
+├── userId (FK to users_profile)
+├── courseTitle
+└── ...
+
+Supabase (enrollments):
+├── enrollmentId
+├── userId (FK)
+├── courseId (FK)
+└── ...

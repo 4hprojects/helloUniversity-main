@@ -1,0 +1,49 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.login_identifiers (
+  id bigint NOT NULL DEFAULT nextval('login_identifiers_id_seq'::regclass),
+  user_id uuid NOT NULL,
+  org_id uuid NOT NULL,
+  id_type text NOT NULL CHECK (id_type = 'user_identifier'::text),
+  id_value text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT login_identifiers_pkey PRIMARY KEY (id),
+  CONSTRAINT login_identifiers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT login_identifiers_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organisations(id)
+);
+CREATE TABLE public.organisations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  code text UNIQUE,
+  display_code text,
+  country_code text DEFAULT 'PH'::text,
+  region text,
+  province text,
+  city text,
+  domain_primary text UNIQUE,
+  domain_aliases ARRAY DEFAULT '{}'::text[],
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT organisations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text NOT NULL UNIQUE,
+  display_name text,
+  first_name text,
+  last_name text,
+  avatar_url text,
+  role text NOT NULL DEFAULT 'student'::text,
+  status text NOT NULL DEFAULT 'active'::text,
+  org_id uuid,
+  user_identifier text,
+  contact_email text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  middle_name text,
+  phone_number text CHECK (phone_number IS NULL OR phone_number ~ '^\+?[1-9]\d{1,14}$'::text),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id),
+  CONSTRAINT profiles_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organisations(id)
+);

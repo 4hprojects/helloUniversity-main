@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Hello University</title>
+    <link rel="stylesheet" href="css/ustyles.css">
+    <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-form">
+            <div class="back-link">
+                <a href="/">← Back to Home</a>
+            </div>
+            <h2>Create Your Account</h2>
+
+            <% if (typeof success !== 'undefined' && success) { %>
+                <div class="success-message">
+                    <%= success %>
+                </div>
+            <% } %>
+
+            <% if (typeof errors !== 'undefined' && errors.length > 0) { %>
+                <ul class="error-message">
+                    <% errors.forEach(error => { %>
+                        <li>✗ <%= error %></li>
+                    <% }); %>
+                </ul>
+            <% } %>
+
+            <form method="POST" action="/signup" id="signupForm" novalidate>
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" required 
+                           placeholder="Enter your email"
+                           value="<%= typeof email !== 'undefined' && email ? email : '' %>">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required 
+                           placeholder="At least 8 characters"
+                           oninput="checkPasswordStrength(this.value)">
+                    <div class="password-strength">
+                        <span id="strengthText">Password strength: -</span>
+                        <div class="strength-bar" id="strengthBar"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <input type="password" id="confirmPassword" name="confirmPassword" required 
+                           placeholder="Re-enter your password">
+                </div>
+
+                <button type="submit" class="auth-btn">Sign Up</button>
+            </form>
+
+            <div class="auth-link">
+                Already have an account? <a href="/login">Login here</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function checkPasswordStrength(password) {
+            const strengthBar = document.getElementById('strengthBar');
+            const strengthText = document.getElementById('strengthText');
+            
+            if (password.length < 8) {
+                strengthBar.className = 'strength-bar weak';
+                strengthText.textContent = 'Password strength: Weak';
+            } else if (password.length < 12) {
+                strengthBar.className = 'strength-bar fair';
+                strengthText.textContent = 'Password strength: Fair';
+            } else {
+                strengthBar.className = 'strength-bar good';
+                strengthText.textContent = 'Password strength: Good';
+            }
+        }
+
+        document.getElementById('signupForm').addEventListener('submit', function(e) {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (password !== confirmPassword) {
+                e.preventDefault();
+                alert('Passwords do not match!');
+            }
+        });
+    </script>
+</body>
+</html>

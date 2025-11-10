@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Hello University</title>
+    <link rel="stylesheet" href="css/ustyles.css">
+    <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-form">
+            <div class="back-link">
+                <a href="/">← Back to Home</a>
+            </div>
+            <h2>Welcome Back</h2>
+
+            <% if (typeof errors !== 'undefined' && errors.length > 0) { %>
+                <ul class="error-message">
+                    <% errors.forEach(error => { %>
+                        <li>✗ <%= error %></li>
+                    <% }); %>
+                </ul>
+            <% } %>
+
+            <form method="POST" action="/login">
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" required placeholder="Enter your email">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required placeholder="Enter your password">
+                </div>
+
+                <button type="submit" class="auth-btn">Login</button>
+            </form>
+
+            <div class="auth-link">
+                Don't have an account? <a href="/signup">Sign up here</a>
+                <br>
+                <small style="margin-top: 1rem; display: block; text-align: center;">
+                    Need to verify your account? <a href="/verify-account">Click here</a>
+                </small>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
