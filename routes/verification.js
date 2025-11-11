@@ -391,3 +391,5 @@ router.get('/debug/verify-tokens', async (req, res) => {
 });
 
 module.exports = router;
+// ✅ ADD THIS EXPORT:
+module.exports.sendVerificationEmail = sendVerificationEmail;
