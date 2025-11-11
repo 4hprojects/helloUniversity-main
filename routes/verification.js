@@ -5,31 +5,37 @@ const axios = require('axios');
 const { Resend } = require('resend');
 const User = require('../models/User');
 const config = require('../config/environment');
+const {
+    checkServiceLimit,
+    checkFailedAttempts,
+    incrementSuccess,
+    incrementFailed
+} = require('../services/emailQuotaService');
 
 // Initialize Resend with config
 const resend = new Resend(config.RESEND_API_KEY);
 
-let emailsSentToday = 0;
-let emailResetTime = new Date().toDateString();
-
-// Reset email count at midnight
-const resetEmailCount = () => {
-    const today = new Date().toDateString();
-    if (today !== emailResetTime) {
-        emailsSentToday = 0;
-        emailResetTime = today;
-        console.log('🔄 [EMAIL] Daily email count reset');
+// Send via Mailersend - WITH PROPER QUOTA TRACKING
+const sendViaMailersend = async (email, emailContent, senderEmail = config.SENDER_EMAIL) => {
+    const canSend = await checkServiceLimit('mailersend');
+    if (!canSend) {
+        console.log('❌ [MAILERSEND] Daily limit reached');
+        await incrementFailed('mailersend');
+        return false;
     }
-};
 
-// Send via Mailersend
-const sendViaMailersend = async (email, emailContent) => {
+    const canRetry = await checkFailedAttempts('mailersend');
+    if (!canRetry) {
+        console.log('❌ [MAILERSEND] Too many failed attempts');
+        return false;
+    }
+
     try {
-        console.log('📧 [MAILERSEND] Attempting to send...');
+        console.log('📧 [MAILERSEND] Attempting to send from:', senderEmail);
         
         const response = await axios.post('https://api.mailersend.com/v1/email', {
             from: {
-                email: config.SENDER_EMAIL,
+                email: senderEmail,
                 name: 'Hello University'
             },
             to: [{ email: email }],
@@ -44,22 +50,37 @@ const sendViaMailersend = async (email, emailContent) => {
 
         console.log('✅ [MAILERSEND] Email sent successfully');
         console.log('✅ [MAILERSEND] Message ID:', response.data?.message_id);
+        await incrementSuccess('mailersend');
         return true;
 
     } catch (error) {
         console.error('❌ [MAILERSEND] Failed:', error.response?.status);
         console.error('❌ [MAILERSEND] Error:', error.response?.data?.message);
+        await incrementFailed('mailersend');
         return false;
     }
 };
 
-// Send via Resend (fallback)
-const sendViaResend = async (email, emailContent) => {
+// Send via Resend (fallback) - WITH QUOTA TRACKING
+const sendViaResend = async (email, emailContent, senderEmail = config.SENDER_EMAIL) => {
+    const canSend = await checkServiceLimit('resend');
+    if (!canSend) {
+        console.log('❌ [RESEND] Daily limit reached');
+        await incrementFailed('resend');
+        return false;
+    }
+
+    const canRetry = await checkFailedAttempts('resend');
+    if (!canRetry) {
+        console.log('❌ [RESEND] Too many failed attempts');
+        return false;
+    }
+
     try {
-        console.log('📧 [RESEND] Attempting to send...');
+        console.log('📧 [RESEND] Attempting to send from:', senderEmail);
         
         const response = await resend.emails.send({
-            from: config.SENDER_EMAIL || 'onboarding@resend.dev',
+            from: senderEmail,
             to: email,
             subject: emailContent.subject,
             html: emailContent.html
@@ -67,24 +88,26 @@ const sendViaResend = async (email, emailContent) => {
 
         if (response.error) {
             console.error('❌ [RESEND] Error:', response.error);
+            await incrementFailed('resend');
             return false;
         }
 
         console.log('✅ [RESEND] Email sent successfully');
         console.log('✅ [RESEND] Message ID:', response.data?.id);
+        await incrementSuccess('resend');
         return true;
 
     } catch (error) {
         console.error('❌ [RESEND] Failed:', error.message);
+        await incrementFailed('resend');
         return false;
     }
 };
 
 // Send verification email with Mailersend → Resend fallback
-const sendVerificationEmail = async (email, token) => {
+// useAutoSender: true = try multiple senders, false/undefined = use config.SENDER_EMAIL only
+const sendVerificationEmail = async (email, token, useAutoSender = true) => {
     const verificationUrl = `${config.APP_URL}/verify-email/${token}`;
-    
-    resetEmailCount();
 
     const emailContent = {
         subject: 'Email Verification - Hello University',
@@ -107,27 +130,62 @@ const sendVerificationEmail = async (email, token) => {
     try {
         console.log('\n📧 [EMAIL] Attempting to send verification email');
         console.log('📧 [EMAIL] To:', email);
-        console.log('📧 [EMAIL] From:', config.SENDER_EMAIL);
+        console.log('📧 [EMAIL] Auto-sender mode:', useAutoSender ? '🔄 YES (multiple senders)' : '❌ NO (config only)');
 
-        // Try Mailersend first
-        console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
-        const mailersendSent = await sendViaMailersend(email, emailContent);
+        if (useAutoSender) {
+            // ✅ TRY MULTIPLE SENDERS (for /request-verification)
+            const senderEmails = [
+                'noreply@hellouniversity.online',
+                'hellouniversityonline@gmail.com',
+                'onboarding@resend.dev',
+                config.SENDER_EMAIL
+            ];
 
-        if (mailersendSent) {
-            console.log('✅ [EMAIL] Email sent via Mailersend');
-            return true;
+            console.log('📧 [EMAIL] Senders to try:', senderEmails);
+
+            // Try Mailersend with each sender
+            console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
+            for (const sender of senderEmails) {
+                const result = await sendViaMailersend(email, emailContent, sender);
+                if (result) {
+                    console.log('✅ [EMAIL] Email sent via Mailersend from:', sender);
+                    return true;
+                }
+            }
+
+            // Fallback to Resend with each sender
+            console.log('\n🔄 [EMAIL] FALLBACK: Trying Resend...');
+            for (const sender of senderEmails) {
+                const result = await sendViaResend(email, emailContent, sender);
+                if (result) {
+                    console.log('✅ [EMAIL] Email sent via Resend from:', sender);
+                    return true;
+                }
+            }
+        } else {
+            // ✅ USE CONFIG SENDER ONLY (for signup via auth.js)
+            console.log('📧 [EMAIL] From:', config.SENDER_EMAIL);
+
+            // Try Mailersend first
+            console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
+            const mailersendSent = await sendViaMailersend(email, emailContent, config.SENDER_EMAIL);
+
+            if (mailersendSent) {
+                console.log('✅ [EMAIL] Email sent via Mailersend');
+                return true;
+            }
+
+            // Fallback to Resend
+            console.log('\n🔄 [EMAIL] FALLBACK: Trying Resend...');
+            const resendSent = await sendViaResend(email, emailContent, config.SENDER_EMAIL);
+
+            if (resendSent) {
+                console.log('✅ [EMAIL] Email sent via Resend');
+                return true;
+            }
         }
 
-        // Fallback to Resend
-        console.log('\n🔄 [EMAIL] FALLBACK: Trying Resend...');
-        const resendSent = await sendViaResend(email, emailContent);
-
-        if (resendSent) {
-            console.log('✅ [EMAIL] Email sent via Resend');
-            return true;
-        }
-
-        // Both failed
+        // All failed
         console.error('❌ [EMAIL] All email services failed');
         return false;
 
@@ -200,41 +258,47 @@ router.post('/request-verification', async (req, res) => {
             });
         }
 
-        // Check if token is still valid
+        // ✅ ALWAYS SEND EMAIL OR GENERATE NEW TOKEN IF EXPIRED
         const now = new Date();
-        if (user.verificationTokenExpiry && user.verificationTokenExpiry > now) {
-            console.log('ℹ️ [VERIFY REQUEST] Token still valid for:', user.emaildb || user.email);
-            console.log('📧 [VERIFY REQUEST] Expires at:', user.verificationTokenExpiry);
-            
+        let needsNewToken = false;
+
+        // Check if token exists and is still valid
+        if (!user.verificationToken || !user.verificationTokenExpiry || user.verificationTokenExpiry <= now) {
+            console.log('🔐 [VERIFY REQUEST] Token expired or missing - generating new token');
+            needsNewToken = true;
+        } else {
             const timeRemaining = Math.ceil((user.verificationTokenExpiry - now) / (1000 * 60));
-            return res.render('verify-account', { 
-                message: `A verification email was already sent to ${user.emaildb || user.email}. It will expire in ${timeRemaining} minutes. Please check your inbox and spam folder.`,
-                email: null,
-                error: null
-            });
+            console.log('ℹ️ [VERIFY REQUEST] Token still valid for:', timeRemaining, 'minutes');
         }
 
-        // Generate new verification token
-        console.log('🔐 [VERIFY REQUEST] Generating new verification token');
-        const verificationToken = crypto.randomBytes(32).toString('hex');
-        const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        // Generate new token if needed
+        if (needsNewToken) {
+            const verificationToken = crypto.randomBytes(32).toString('hex');
+            const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-        user.verificationToken = verificationToken;
-        user.verificationTokenExpiry = verificationTokenExpiry;
-        user.lastVerificationEmailSent = new Date();
-        user.verificationEmailCount = (user.verificationEmailCount || 0) + 1;
-        user.isVerified = user.isVerified || false;
-        
-        await user.save();
+            user.verificationToken = verificationToken;
+            user.verificationTokenExpiry = verificationTokenExpiry;
+            user.lastVerificationEmailSent = new Date();
+            user.verificationEmailCount = (user.verificationEmailCount || 0) + 1;
+            
+            await user.save();
 
-        console.log('✅ [VERIFY REQUEST] Token saved');
-        console.log('📧 [VERIFY REQUEST] Email count:', user.verificationEmailCount);
+            console.log('✅ [VERIFY REQUEST] New token generated');
+            console.log('📧 [VERIFY REQUEST] Email count:', user.verificationEmailCount);
+        } else {
+            // Token is still valid, just increment send count
+            user.lastVerificationEmailSent = new Date();
+            user.verificationEmailCount = (user.verificationEmailCount || 0) + 1;
+            await user.save();
+            console.log('📧 [VERIFY REQUEST] Resending verification email (token still valid)');
+        }
 
-        // Send verification email
-        const emailSent = await sendVerificationEmail(user.emaildb || user.email, verificationToken);
+        // ✅ SEND EMAIL WITH AUTO-SENDER (true = try multiple senders)
+        console.log('\n📧 [VERIFY REQUEST] Sending verification email with auto-detection...');
+        const emailSent = await sendVerificationEmail(user.emaildb || user.email, user.verificationToken, true);
 
         if (!emailSent) {
-            console.log('❌ [VERIFY REQUEST] Failed to send email with all services');
+            console.log('❌ [VERIFY REQUEST] Failed to send email with all services and senders');
             return res.render('verify-account', { 
                 error: 'Failed to send verification email. Please try again later.',
                 email: null,
@@ -244,7 +308,7 @@ router.post('/request-verification', async (req, res) => {
 
         console.log('✅ [VERIFY REQUEST] Verification email sent successfully');
         return res.render('verify-account', { 
-            message: `Verification email sent to ${user.emaildb || user.email}. Please check your inbox (and spam folder) and click the verification link.`,
+            message: `✅ Verification email sent to ${user.emaildb || user.email}. Please check your inbox (and spam folder) and click the verification link.`,
             email: null,
             error: null
         });
