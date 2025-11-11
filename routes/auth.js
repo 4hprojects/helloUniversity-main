@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const axios = require('axios');
+const config = require('../config/environment');
 const { Resend } = require('resend');
 const User = require('../models/User');
 const {
@@ -13,7 +14,7 @@ const {
 } = require('../services/emailQuotaService');
 require('dotenv').config();
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(config.RESEND_API_KEY);
 
 // Get app URL based on NODE_ENV
 const getAppUrl = () => {
@@ -45,7 +46,7 @@ const sendViaMailersend = async (email, emailContent) => {
         
         const response = await axios.post('https://api.mailersend.com/v1/email', {
             from: {
-                email: process.env.SENDER_EMAIL,
+                email: config.SENDER_EMAIL,
                 name: 'Hello University'
             },
             to: [{ email: email }],
@@ -53,7 +54,7 @@ const sendViaMailersend = async (email, emailContent) => {
             html: emailContent.html
         }, {
             headers: {
-                'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
+                'Authorization': `Bearer ${config.MAILERSEND_API_KEY}`,
                 'Content-Type': 'application/json'
             }
         });
@@ -92,7 +93,7 @@ const sendViaResend = async (email, emailContent) => {
         console.log('📧 [RESEND] Attempting to send...');
         
         const response = await resend.emails.send({
-            from: process.env.SENDER_EMAIL || 'onboarding@resend.dev',
+            from: config.SENDER_EMAIL || 'onboarding@resend.dev',
             to: email,
             subject: emailContent.subject,
             html: emailContent.html
@@ -118,8 +119,7 @@ const sendViaResend = async (email, emailContent) => {
 
 // Send verification email with Mailersend → Resend fallback
 const sendVerificationEmail = async (email, token) => {
-    const appUrl = getAppUrl();
-    const verificationUrl = `${appUrl}/verify-email/${token}`;
+    const verificationUrl = `${config.APP_URL}/verify-email/${token}`;
     
     console.log('\n📧 [EMAIL] Verification URL:', verificationUrl);
 
@@ -144,7 +144,7 @@ const sendVerificationEmail = async (email, token) => {
     try {
         console.log('\n📧 [EMAIL] Attempting to send verification email');
         console.log('📧 [EMAIL] To:', email);
-        console.log('📧 [EMAIL] From:', process.env.SENDER_EMAIL);
+        console.log('📧 [EMAIL] From:', config.SENDER_EMAIL);
 
         // Try Mailersend first
         console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');

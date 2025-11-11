@@ -1,4 +1,5 @@
 const EmailQuota = require('../models/EmailQuota');
+const config = require('../config/environment');
 
 // Get today's date in YYYY-MM-DD format
 const getTodayDate = () => {
@@ -35,8 +36,8 @@ const getTodayQuota = async () => {
 const checkServiceLimit = async (service) => {
     const quota = await getTodayQuota();
     const limit = service === 'resend' 
-        ? parseInt(process.env.RESEND_DAILY_LIMIT || 80)
-        : parseInt(process.env.MAILERSEND_DAILY_LIMIT || 80);
+        ? config.RESEND_DAILY_LIMIT
+        : config.MAILERSEND_DAILY_LIMIT;
     
     const count = service === 'resend' ? quota.resendCount : quota.mailersendCount;
     
@@ -52,7 +53,7 @@ const checkServiceLimit = async (service) => {
 // Check if service has too many failed attempts
 const checkFailedAttempts = async (service) => {
     const quota = await getTodayQuota();
-    const maxAttempts = parseInt(process.env.MAX_FAILED_ATTEMPTS || 3);
+    const maxAttempts = config.MAX_FAILED_ATTEMPTS;
     
     const failedAttempts = service === 'resend' 
         ? quota.resendFailedAttempts 
