@@ -6,17 +6,15 @@ const axios = require('axios');
 const { Resend } = require('resend');
 const User = require('../models/User');
 const config = require('../config/environment');
+const {
+    checkServiceLimit,
+    checkFailedAttempts,
+    incrementSuccess,
+    incrementFailed
+} = require('../services/emailQuotaService');
 
 // Initialize Resend with config
 const resend = new Resend(config.RESEND_API_KEY);
-
-// Get app URL based on NODE_ENV
-const getAppUrl = () => {
-    if (process.env.NODE_ENV === 'production') {
-        return process.env.APP_URL_PROD || 'http://hellouniversity.online';
-    }
-    return process.env.APP_URL_DEV || 'http://localhost:3000';
-};
 
 // Send via Mailersend
 const sendViaMailersend = async (email, emailContent) => {
