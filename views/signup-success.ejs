@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signup Successful - Hello University</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        .success-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+            animation: scaleIn 0.5s ease-in-out;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 28px;
+        }
+        
+        p {
+            color: #666;
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+        
+        .email-highlight {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 20px 0;
+        }
+        
+        .instructions {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+            border-left: 4px solid #667eea;
+        }
+        
+        .instructions h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            color: #666;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 20px;
+            transition: transform 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .note {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">✅</div>
+        
+        <h1>Signup Successful!</h1>
+        
+        <p>Welcome to <strong>Hello University</strong>!</p>
+        
+        <div class="email-highlight">
+            <%= email %>
+        </div>
+        
+        <div class="instructions">
+            <h3>Next Steps:</h3>
+            <ol>
+                <li>Check your email inbox for a verification link</li>
+                <li>Click the link to verify your email address</li>
+                <li>Return to login with your credentials</li>
+                <li>Access your Hello University account</li>
+            </ol>
+        </div>
+        
+        <div class="note">
+            <strong>💡 Tip:</strong> If you don't see the email, check your spam or junk folder.
+        </div>
+        
+        <a href="/login" class="btn">Go to Login</a>
+    </div>
+</body>
+</html>

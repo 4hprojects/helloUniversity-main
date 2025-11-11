@@ -2,12 +2,11 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
+const { Resend } = require('resend');
 const User = require('../models/User');
 require('dotenv').config();
 
-// Sendgrid configuration
-const sgMail = require('@sendgrid/mail');
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 let emailsSentToday = 0;
 let emailResetTime = new Date().toDateString();
@@ -22,15 +21,71 @@ const resetEmailCount = () => {
     }
 };
 
-// Send verification email using Sendgrid or Resend
+// Send via Mailersend
+const sendViaMailersend = async (email, emailContent) => {
+    try {
+        console.log('📧 [MAILERSEND] Attempting to send...');
+        
+        const response = await axios.post('https://api.mailersend.com/v1/email', {
+            from: {
+                email: process.env.SENDER_EMAIL,
+                name: 'Hello University'
+            },
+            to: [{ email: email }],
+            subject: emailContent.subject,
+            html: emailContent.html
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        console.log('✅ [MAILERSEND] Email sent successfully');
+        console.log('✅ [MAILERSEND] Message ID:', response.data?.message_id);
+        return true;
+
+    } catch (error) {
+        console.error('❌ [MAILERSEND] Failed:', error.response?.status);
+        console.error('❌ [MAILERSEND] Error:', error.response?.data?.message);
+        return false;
+    }
+};
+
+// Send via Resend (fallback)
+const sendViaResend = async (email, emailContent) => {
+    try {
+        console.log('📧 [RESEND] Attempting to send...');
+        
+        const response = await resend.emails.send({
+            from: process.env.SENDER_EMAIL || 'onboarding@resend.dev',
+            to: email,
+            subject: emailContent.subject,
+            html: emailContent.html
+        });
+
+        if (response.error) {
+            console.error('❌ [RESEND] Error:', response.error);
+            return false;
+        }
+
+        console.log('✅ [RESEND] Email sent successfully');
+        console.log('✅ [RESEND] Message ID:', response.data?.id);
+        return true;
+
+    } catch (error) {
+        console.error('❌ [RESEND] Failed:', error.message);
+        return false;
+    }
+};
+
+// Send verification email with Mailersend → Resend fallback
 const sendVerificationEmail = async (email, token) => {
     const verificationUrl = `http://localhost:3000/verify-email/${token}`;
     
     resetEmailCount();
 
     const emailContent = {
-        from: process.env.SENDER_EMAIL,
-        to: email,
         subject: 'Email Verification - Hello University',
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -51,56 +106,35 @@ const sendVerificationEmail = async (email, token) => {
     try {
         console.log('\n📧 [EMAIL] Attempting to send verification email');
         console.log('📧 [EMAIL] To:', email);
+        console.log('📧 [EMAIL] From:', process.env.SENDER_EMAIL);
         console.log('📧 [EMAIL] Emails sent today:', emailsSentToday);
 
-        // Check if we've reached 95 emails limit
-        if (emailsSentToday >= 95) {
-            console.log('⚠️ [EMAIL] Sendgrid limit (95) reached, using Resend as fallback');
-            return await sendViaResend(email, emailContent);
+        // Try Mailersend first
+        console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
+        const mailersendSent = await sendViaMailersend(email, emailContent);
+
+        if (mailersendSent) {
+            emailsSentToday++;
+            console.log('📊 [EMAIL] Total sent today:', emailsSentToday);
+            return true;
         }
 
-        // Try Sendgrid first
-        console.log('📧 [EMAIL] Using Sendgrid (Primary)');
-        await sgMail.send(emailContent);
-        emailsSentToday++;
-        
-        console.log('✅ [EMAIL] Email sent via Sendgrid');
-        console.log('📊 [EMAIL] Total sent today:', emailsSentToday);
-        return true;
-
-    } catch (error) {
-        console.error('❌ [EMAIL] Sendgrid error:', error.message);
-        console.log('🔄 [EMAIL] Falling back to Resend...');
-        
         // Fallback to Resend
-        return await sendViaResend(email, emailContent);
-    }
-};
+        console.log('\n🔄 [EMAIL] FALLBACK: Trying Resend...');
+        const resendSent = await sendViaResend(email, emailContent);
 
-// Send via Resend (backup)
-const sendViaResend = async (email, emailContent) => {
-    try {
-        console.log('📧 [EMAIL] Using Resend (Fallback)');
-        
-        const response = await axios.post('https://api.resend.com/emails', {
-            from: emailContent.from,
-            to: emailContent.to,
-            subject: emailContent.subject,
-            html: emailContent.html
-        }, {
-            headers: {
-                'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
+        if (resendSent) {
+            emailsSentToday++;
+            console.log('📊 [EMAIL] Total sent today:', emailsSentToday);
+            return true;
+        }
 
-        console.log('✅ [EMAIL] Email sent via Resend (Fallback)');
-        console.log('✅ [EMAIL] Response ID:', response.data.id);
-        return true;
+        // Both failed
+        console.error('❌ [EMAIL] All email services failed');
+        return false;
 
     } catch (error) {
-        console.error('❌ [EMAIL] Resend error:', error.message);
-        console.error('❌ [EMAIL] Resend response:', error.response?.data);
+        console.error('❌ [EMAIL] Critical error:', error.message);
         return false;
     }
 };
@@ -132,20 +166,35 @@ router.post('/request-verification', async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ email });
+        // Normalize email
+        const normalizedEmail = email.toLowerCase().trim();
+        console.log('📧 [VERIFY REQUEST] Normalized email:', normalizedEmail);
+
+        // Search emaildb first, then fallback to email
+        let user = await User.findOne({ 
+            emaildb: { $regex: `^${normalizedEmail}$`, $options: 'i' }
+        });
 
         if (!user) {
-            console.log('❌ [VERIFY REQUEST] User not found:', email);
+            user = await User.findOne({ 
+                email: { $regex: `^${normalizedEmail}$`, $options: 'i' }
+            });
+        }
+
+        if (!user) {
+            console.log('❌ [VERIFY REQUEST] User not found:', normalizedEmail);
             return res.render('verify-account', { 
-                error: 'Email not found in our system',
+                error: 'Email not found. Please sign up first.',
                 email: null,
                 message: null
             });
         }
 
+        console.log('✅ [VERIFY REQUEST] User found:', user.emaildb || user.email);
+
         // Check if already verified
         if (user.isVerified) {
-            console.log('ℹ️ [VERIFY REQUEST] User already verified:', email);
+            console.log('ℹ️ [VERIFY REQUEST] User already verified:', user.emaildb || user.email);
             return res.render('verify-account', { 
                 message: 'Your account is already verified! You can now login.',
                 email: null,
@@ -153,15 +202,15 @@ router.post('/request-verification', async (req, res) => {
             });
         }
 
-        // Check if token is still valid (not expired)
+        // Check if token is still valid
         const now = new Date();
         if (user.verificationTokenExpiry && user.verificationTokenExpiry > now) {
-            console.log('ℹ️ [VERIFY REQUEST] Token still valid for:', email);
+            console.log('ℹ️ [VERIFY REQUEST] Token still valid for:', user.emaildb || user.email);
             console.log('📧 [VERIFY REQUEST] Expires at:', user.verificationTokenExpiry);
             
-            const timeRemaining = Math.ceil((user.verificationTokenExpiry - now) / (1000 * 60)); // minutes
+            const timeRemaining = Math.ceil((user.verificationTokenExpiry - now) / (1000 * 60));
             return res.render('verify-account', { 
-                message: `A verification email was already sent to ${email}. It will expire in ${timeRemaining} minutes. Please check your inbox (and spam folder).`,
+                message: `A verification email was already sent to ${user.emaildb || user.email}. It will expire in ${timeRemaining} minutes. Please check your inbox and spam folder.`,
                 email: null,
                 error: null
             });
@@ -176,16 +225,18 @@ router.post('/request-verification', async (req, res) => {
         user.verificationTokenExpiry = verificationTokenExpiry;
         user.lastVerificationEmailSent = new Date();
         user.verificationEmailCount = (user.verificationEmailCount || 0) + 1;
+        user.isVerified = user.isVerified || false;
+        
         await user.save();
 
-        console.log('✅ [VERIFY REQUEST] Token saved for:', email);
+        console.log('✅ [VERIFY REQUEST] Token saved');
         console.log('📧 [VERIFY REQUEST] Email count:', user.verificationEmailCount);
 
-        // Send verification email using Sendgrid/Resend
-        const emailSent = await sendVerificationEmail(email, verificationToken);
+        // Send verification email
+        const emailSent = await sendVerificationEmail(user.emaildb || user.email, verificationToken);
 
         if (!emailSent) {
-            console.log('❌ [VERIFY REQUEST] Failed to send email via both services');
+            console.log('❌ [VERIFY REQUEST] Failed to send email with all services');
             return res.render('verify-account', { 
                 error: 'Failed to send verification email. Please try again later.',
                 email: null,
@@ -195,13 +246,14 @@ router.post('/request-verification', async (req, res) => {
 
         console.log('✅ [VERIFY REQUEST] Verification email sent successfully');
         return res.render('verify-account', { 
-            message: `Verification email sent to ${email}. Please check your inbox and click the verification link.`,
+            message: `Verification email sent to ${user.emaildb || user.email}. Please check your inbox (and spam folder) and click the verification link.`,
             email: null,
             error: null
         });
 
     } catch (error) {
         console.error('❌ [VERIFY REQUEST] Critical error:', error.message);
+        console.error('❌ [VERIFY REQUEST] Stack:', error.stack);
         res.render('verify-account', { 
             error: 'An error occurred. Please try again.',
             email: null,
@@ -215,7 +267,7 @@ router.get('/verify-email/:token', async (req, res) => {
     try {
         const { token } = req.params;
         console.log('\n📧 [VERIFY] Email verification attempt');
-        console.log('📧 [VERIFY] Token:', token);
+        console.log('📧 [VERIFY] Token:', token.substring(0, 10) + '...');
 
         const user = await User.findOne({
             verificationToken: token,
@@ -229,14 +281,14 @@ router.get('/verify-email/:token', async (req, res) => {
             });
         }
 
-        console.log('✅ [VERIFY] Valid token found for user:', user.email);
+        console.log('✅ [VERIFY] Valid token found for user:', user.emaildb || user.email);
 
         user.isVerified = true;
         user.verificationToken = null;
         user.verificationTokenExpiry = null;
         await user.save();
 
-        console.log('✅ [VERIFY] User verified successfully:', user.email);
+        console.log('✅ [VERIFY] User verified successfully:', user.emaildb || user.email);
         res.render('verify-success');
 
     } catch (error) {
@@ -244,6 +296,35 @@ router.get('/verify-email/:token', async (req, res) => {
         res.render('verify-error', { 
             message: 'An error occurred during verification' 
         });
+    }
+});
+
+// DEBUG: Check verification tokens
+router.get('/debug/verify-tokens', async (req, res) => {
+    try {
+        console.log('\n📋 [DEBUG] Checking verification tokens...');
+        
+        const usersWithTokens = await User.find({ 
+            verificationToken: { $ne: null }
+        }).select('emaildb verificationToken verificationTokenExpiry isVerified');
+        
+        console.log('📋 [DEBUG] Users with active verification tokens:');
+        usersWithTokens.forEach((user, index) => {
+            console.log(`${index + 1}. Email: ${user.emaildb} | Verified: ${user.isVerified} | Token: ${user.verificationToken?.substring(0, 10)}... | Expires: ${user.verificationTokenExpiry}`);
+        });
+
+        res.json({ 
+            totalWithTokens: usersWithTokens.length,
+            users: usersWithTokens.map(u => ({
+                email: u.emaildb,
+                isVerified: u.isVerified,
+                tokenGenerated: !!u.verificationToken,
+                expiresAt: u.verificationTokenExpiry
+            }))
+        });
+    } catch (error) {
+        console.error('❌ [DEBUG] Error:', error.message);
+        res.json({ error: error.message });
     }
 });
 

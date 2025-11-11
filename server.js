@@ -6,11 +6,33 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// HTTPS Redirect (Production only)
+if (NODE_ENV === 'production') {
+    app.use((req, res, next) => {
+        if (req.headers["x-forwarded-proto"] !== "https") {
+            return res.redirect("https://" + req.headers.host + req.url);
+        }
+        next();
+    });
+    console.log('🔒 HTTPS redirect enabled');
+}
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✓ MongoDB connected'))
-    .catch(err => console.log('✗ MongoDB connection error:', err));
+mongoose.connect(process.env.MONGODB_URI, {
+    dbName: 'myDatabase',
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => {
+    console.log('✓ MongoDB connected');
+
+})
+.catch((err) => {
+    console.error('✗ MongoDB connection error:', err);
+    process.exit(1);
+});
 
 // Set EJS as view engine
 app.set('view engine', 'ejs');
@@ -32,7 +54,7 @@ app.use(session({
     cookie: { 
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
-        secure: false
+        secure: NODE_ENV === 'production' ? true : false
     }
 }));
 
@@ -50,4 +72,5 @@ app.use('/', verificationRoutes);
 
 app.listen(PORT, () => {
     console.log(`✓ Server running at http://localhost:${PORT}`);
+    console.log(`📍 Environment: ${NODE_ENV}`);
 });
