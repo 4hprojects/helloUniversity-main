@@ -3,17 +3,11 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const axios = require('axios');
-const config = require('../config/environment');
 const { Resend } = require('resend');
 const User = require('../models/User');
-const {
-    checkServiceLimit,
-    checkFailedAttempts,
-    incrementSuccess,
-    incrementFailed
-} = require('../services/emailQuotaService');
-require('dotenv').config();
+const config = require('../config/environment');
 
+// Initialize Resend with config
 const resend = new Resend(config.RESEND_API_KEY);
 
 // Get app URL based on NODE_ENV

@@ -4,9 +4,10 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { Resend } = require('resend');
 const User = require('../models/User');
-require('dotenv').config();
+const config = require('../config/environment');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Initialize Resend with config
+const resend = new Resend(config.RESEND_API_KEY);
 
 let emailsSentToday = 0;
 let emailResetTime = new Date().toDateString();
@@ -28,7 +29,7 @@ const sendViaMailersend = async (email, emailContent) => {
         
         const response = await axios.post('https://api.mailersend.com/v1/email', {
             from: {
-                email: process.env.SENDER_EMAIL,
+                email: config.SENDER_EMAIL,
                 name: 'Hello University'
             },
             to: [{ email: email }],
@@ -36,7 +37,7 @@ const sendViaMailersend = async (email, emailContent) => {
             html: emailContent.html
         }, {
             headers: {
-                'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
+                'Authorization': `Bearer ${config.MAILERSEND_API_KEY}`,
                 'Content-Type': 'application/json'
             }
         });
@@ -58,7 +59,7 @@ const sendViaResend = async (email, emailContent) => {
         console.log('📧 [RESEND] Attempting to send...');
         
         const response = await resend.emails.send({
-            from: process.env.SENDER_EMAIL || 'onboarding@resend.dev',
+            from: config.SENDER_EMAIL || 'onboarding@resend.dev',
             to: email,
             subject: emailContent.subject,
             html: emailContent.html
@@ -81,7 +82,7 @@ const sendViaResend = async (email, emailContent) => {
 
 // Send verification email with Mailersend → Resend fallback
 const sendVerificationEmail = async (email, token) => {
-    const verificationUrl = `http://localhost:3000/verify-email/${token}`;
+    const verificationUrl = `${config.APP_URL}/verify-email/${token}`;
     
     resetEmailCount();
 
@@ -106,16 +107,14 @@ const sendVerificationEmail = async (email, token) => {
     try {
         console.log('\n📧 [EMAIL] Attempting to send verification email');
         console.log('📧 [EMAIL] To:', email);
-        console.log('📧 [EMAIL] From:', process.env.SENDER_EMAIL);
-        console.log('📧 [EMAIL] Emails sent today:', emailsSentToday);
+        console.log('📧 [EMAIL] From:', config.SENDER_EMAIL);
 
         // Try Mailersend first
         console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
         const mailersendSent = await sendViaMailersend(email, emailContent);
 
         if (mailersendSent) {
-            emailsSentToday++;
-            console.log('📊 [EMAIL] Total sent today:', emailsSentToday);
+            console.log('✅ [EMAIL] Email sent via Mailersend');
             return true;
         }
 
@@ -124,8 +123,7 @@ const sendVerificationEmail = async (email, token) => {
         const resendSent = await sendViaResend(email, emailContent);
 
         if (resendSent) {
-            emailsSentToday++;
-            console.log('📊 [EMAIL] Total sent today:', emailsSentToday);
+            console.log('✅ [EMAIL] Email sent via Resend');
             return true;
         }
 
