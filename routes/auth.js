@@ -2,169 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const axios = require('axios');
-const { Resend } = require('resend');
 const User = require('../models/User');
-const config = require('../config/environment');
-const {
-    checkServiceLimit,
-    checkFailedAttempts,
-    incrementSuccess,
-    incrementFailed
-} = require('../services/emailQuotaService');
-
-// Initialize Resend with config
-const resend = new Resend(config.RESEND_API_KEY);
-
-// Send via Mailersend
-const sendViaMailersend = async (email, emailContent) => {
-    try {
-        // Check rate limit
-        const canSend = await checkServiceLimit('mailersend');
-        if (!canSend) {
-            console.log('❌ [MAILERSEND] Daily limit reached');
-            await incrementFailed('mailersend');
-            return { success: false, reason: 'Daily limit reached' };
-        }
-
-        // Check failed attempts
-        const canRetry = await checkFailedAttempts('mailersend');
-        if (!canRetry) {
-            console.log('❌ [MAILERSEND] Too many failed attempts');
-            return { success: false, reason: 'Too many failed attempts' };
-        }
-
-        console.log('📧 [MAILERSEND] Attempting to send...');
-        
-        const response = await axios.post('https://api.mailersend.com/v1/email', {
-            from: {
-                email: config.SENDER_EMAIL,
-                name: 'Hello University'
-            },
-            to: [{ email: email }],
-            subject: emailContent.subject,
-            html: emailContent.html
-        }, {
-            headers: {
-                'Authorization': `Bearer ${config.MAILERSEND_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        await incrementSuccess('mailersend');
-        console.log('✅ [MAILERSEND] Email sent successfully');
-        console.log('✅ [MAILERSEND] Message ID:', response.data?.message_id);
-        return { success: true, messageId: response.data?.message_id, service: 'mailersend' };
-
-    } catch (error) {
-        await incrementFailed('mailersend');
-        console.error('❌ [MAILERSEND] Failed:', error.response?.status);
-        console.error('❌ [MAILERSEND] Error:', error.response?.data?.message);
-        return { success: false, reason: error.response?.data?.message };
-    }
-};
-
-// Send via Resend (fallback)
-const sendViaResend = async (email, emailContent) => {
-    try {
-        // Check rate limit
-        const canSend = await checkServiceLimit('resend');
-        if (!canSend) {
-            console.log('❌ [RESEND] Daily limit reached');
-            await incrementFailed('resend');
-            return { success: false, reason: 'Daily limit reached' };
-        }
-
-        // Check failed attempts
-        const canRetry = await checkFailedAttempts('resend');
-        if (!canRetry) {
-            console.log('❌ [RESEND] Too many failed attempts');
-            return { success: false, reason: 'Too many failed attempts' };
-        }
-
-        console.log('📧 [RESEND] Attempting to send...');
-        
-        const response = await resend.emails.send({
-            from: config.SENDER_EMAIL || 'onboarding@resend.dev',
-            to: email,
-            subject: emailContent.subject,
-            html: emailContent.html
-        });
-
-        if (response.error) {
-            await incrementFailed('resend');
-            console.error('❌ [RESEND] Error:', response.error);
-            return { success: false, reason: response.error };
-        }
-
-        await incrementSuccess('resend');
-        console.log('✅ [RESEND] Email sent successfully');
-        console.log('✅ [RESEND] Message ID:', response.data?.id);
-        return { success: true, messageId: response.data?.id, service: 'resend' };
-
-    } catch (error) {
-        await incrementFailed('resend');
-        console.error('❌ [RESEND] Failed:', error.message);
-        return { success: false, reason: error.message };
-    }
-};
-
-// Send verification email with Mailersend → Resend fallback
-const sendVerificationEmail = async (email, token) => {
-    const verificationUrl = `${config.APP_URL}/verify-email/${token}`;
-    
-    console.log('\n📧 [EMAIL] Verification URL:', verificationUrl);
-
-    const emailContent = {
-        subject: 'Email Verification - Hello University',
-        html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #667eea;">Welcome to Hello University!</h2>
-                <p>Please verify your email by clicking the button below:</p>
-                <a href="${verificationUrl}" style="background-color: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 20px 0;">
-                    Verify Email
-                </a>
-                <p>Or copy and paste this link: ${verificationUrl}</p>
-                <p><strong>This link will expire in 24 hours.</strong></p>
-                <p>If you didn't create this account, please ignore this email.</p>
-                <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-                <p style="color: #666; font-size: 12px;">Hello University - Quality Education & Learning</p>
-            </div>
-        `
-    };
-
-    try {
-        console.log('\n📧 [EMAIL] Attempting to send verification email');
-        console.log('📧 [EMAIL] To:', email);
-        console.log('📧 [EMAIL] From:', config.SENDER_EMAIL);
-
-        // Try Mailersend first
-        console.log('\n📧 [EMAIL] PRIMARY: Trying Mailersend...');
-        const mailersendResult = await sendViaMailersend(email, emailContent);
-
-        if (mailersendResult.success) {
-            console.log('✅ [EMAIL] Email sent via Mailersend');
-            return { success: true, service: 'mailersend', messageId: mailersendResult.messageId };
-        }
-
-        // Fallback to Resend
-        console.log('\n🔄 [EMAIL] FALLBACK: Trying Resend...');
-        const resendResult = await sendViaResend(email, emailContent);
-
-        if (resendResult.success) {
-            console.log('✅ [EMAIL] Email sent via Resend');
-            return { success: true, service: 'resend', messageId: resendResult.messageId };
-        }
-
-        // Both failed
-        console.error('❌ [EMAIL] All email services failed');
-        return { success: false, reason: 'All email services failed' };
-
-    } catch (error) {
-        console.error('❌ [EMAIL] Critical error:', error.message);
-        return { success: false, reason: error.message };
-    }
-};
+const { sendVerificationEmail } = require('./verification');
 
 // POST: Signup
 router.post('/signup', async (req, res) => {
@@ -231,18 +70,17 @@ router.post('/signup', async (req, res) => {
         console.log('✅ [SIGNUP] User created in database:', newUser.emaildb);
         console.log('✅ [SIGNUP] User ID:', newUser._id);
 
-        // Send verification email
-        const emailResult = await sendVerificationEmail(normalizedEmail, verificationToken);
+        // ✅ SEND VERIFICATION EMAIL WITH AUTO-SENDER
+        const emailResult = await sendVerificationEmail(normalizedEmail, verificationToken, true);
 
-        if (!emailResult.success) {
+        if (!emailResult) {
             console.log('❌ [SIGNUP] Failed to send verification email');
             return res.render('signup', { 
-                errors: [`Signup successful but failed to send verification email: ${emailResult.reason}`] 
+                errors: ['Signup successful but failed to send verification email. Please use the resend option.'] 
             });
         }
 
         console.log('✅ [SIGNUP] Signup successful for:', normalizedEmail);
-        console.log('📧 [SIGNUP] Email sent via:', emailResult.service);
         return res.render('signup-success', { email: normalizedEmail });
 
     } catch (error) {
